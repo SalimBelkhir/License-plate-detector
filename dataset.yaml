@@ -1,0 +1,8 @@
+# dataset.yaml
+
+train: E:\2eme tel\PFA2\Database\train #ajouter le chemin de dossier train dans le dataset
+val: E:\2eme tel\PFA2\Database\valid #ajouter le chemin de dossier val dans le dataset
+
+nc: 1
+
+names: ['license_plate']
