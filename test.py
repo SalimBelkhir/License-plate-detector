@@ -17,17 +17,17 @@ from io import BytesIO
 
 app = Flask(__name__)
 
-# Load YOLO model
+
 model_path = './runs/detect/train11/weights/last.pt'
 model = YOLO(model_path)
 
-# License plate details to detect
+
 Imatricule = "2665 تونس 147"
 serial = '147'
 code = '2665'
 
 # OCR setup
-reader = easyocr.Reader(['ar', 'en'])  # Add 'ar' for Arabic text recognition & 'en' is for English
+reader = easyocr.Reader(['ar', 'en'])  
 
 # Detection parameters
 threshold = 0.25
@@ -37,7 +37,7 @@ match_found = False
 # Email configuration
 sender_email = "selim.belkhire@etudiant-enit.utm.tn"
 receiver_email = "selim.belkhire@etudiant-enit.utm.tn"
-password = "tbtlxuqrcdaevnem"  # You should use environment variables or a secure method for this
+password = ""  # You should use environment variables or a secure method for this
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
@@ -75,11 +75,11 @@ def send_email(subject, body, img_path=None):
             image = MIMEImage(data, name='detected_frame.jpg')
             msg.attach(image)
 
-        # Connect to the SMTP server
+       
         with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()  # Secure the connection
-            server.login(sender_email, password)  # Log in to the email account
-            server.sendmail(sender_email, receiver_email, msg.as_string())  # Send the email
+            server.starttls()  
+            server.login(sender_email, password) 
+            server.sendmail(sender_email, receiver_email, msg.as_string())  
         print("Email sent successfully!")
         return True
     except Exception as e:
@@ -94,7 +94,8 @@ def process_frame(frame):
     if frame is None:
         return None
 
-    # Create a copy to avoid modifying the original
+   
+    
     processed_frame = frame.copy()
     current_time = time.time()
 
