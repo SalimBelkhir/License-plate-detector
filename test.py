@@ -241,13 +241,13 @@ def esp32_cam_stream():
                 if response.status_code == 200:
                     img_array = np.frombuffer(response.content, dtype=np.uint8)
                     esp32_cam_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                    time.sleep(0.1)  # Small delay between requests
+                    time.sleep(0.1) 
                 else:
                     print(f"Failed to get frame from ESP32-CAM: {response.status_code}")
                     time.sleep(1)
         except Exception as e:
             print(f"Error fetching ESP32-CAM frame: {e}")
-            time.sleep(5)  # Wait before retrying
+            time.sleep(5) 
 
     print("ESP32-CAM streaming stopped")
 
