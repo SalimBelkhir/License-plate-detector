@@ -17,11 +17,11 @@ from io import BytesIO
 
 app = Flask(__name__)
 
-
+# Load YOLO model
 model_path = './runs/detect/train11/weights/last.pt'
 model = YOLO(model_path)
 
-
+# License plate details to detect
 Imatricule = "2665 تونس 147"
 serial = '147'
 code = '2665'
@@ -37,11 +37,11 @@ match_found = False
 # Email configuration
 sender_email = "selim.belkhire@etudiant-enit.utm.tn"
 receiver_email = "selim.belkhire@etudiant-enit.utm.tn"
-password = ""  # You should use environment variables or a secure method for this
+password = ""  #write your own token given by google here 
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
-# Global variables
+
 camera = None
 camera_active = False
 video_path = None
@@ -49,10 +49,9 @@ processing_video = False
 video_frame = None
 frame_global = None
 last_detection_time = 0
-detection_cooldown = 10  # seconds between detections to avoid duplicate emails
-processed_frames = []  # Store processed frames for video files
+detection_cooldown = 10 
+processed_frames = [] 
 
-# ESP32-CAM configuration
 esp32_cam_url = None
 esp32_cam_active = False
 esp32_cam_frame = None
@@ -62,7 +61,6 @@ esp32_cam_thread = None
 def send_email(subject, body, img_path=None):
     """Send email with optional image attachment"""
     try:
-        # Create the email
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = receiver_email
@@ -75,11 +73,10 @@ def send_email(subject, body, img_path=None):
             image = MIMEImage(data, name='detected_frame.jpg')
             msg.attach(image)
 
-       
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()  
-            server.login(sender_email, password) 
-            server.sendmail(sender_email, receiver_email, msg.as_string())  
+            server.login(sender_email, password)  
+            server.sendmail(sender_email, receiver_email, msg.as_string()) 
         print("Email sent successfully!")
         return True
     except Exception as e:
@@ -94,76 +91,68 @@ def process_frame(frame):
     if frame is None:
         return None
 
-   
-    
     processed_frame = frame.copy()
     current_time = time.time()
 
-    # Check if we're in cooldown period
     if current_time - last_detection_time < detection_cooldown:
         return processed_frame
 
-    # Perform YOLO detection
     results = model(processed_frame)[0]
 
     for result in results.boxes.data.tolist():
         x1, y1, x2, y2, score, class_id = result
 
         if score > threshold:
-            # Draw bounding box
             cv2.rectangle(processed_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 4)
             label = results.names[int(class_id)].upper()
             cv2.putText(processed_frame, label, (int(x1), int(y1 - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
 
-            # Extract license plate region
+           
             license_plate_region = frame[int(y1):int(y2), int(x1):int(x2)]
 
-            # Skip if region is too small
+          
             if license_plate_region.size == 0 or license_plate_region.shape[0] < 10 or license_plate_region.shape[
                 1] < 10:
                 continue
 
-            # Process image for better OCR
+        
             gray = cv2.cvtColor(license_plate_region, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            # Resize for better OCR accuracy
+          
             resized = cv2.resize(binary, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
 
-            # Perform OCR
             ocr_results = reader.readtext(resized)
 
-            # Check OCR results
+         
             if ocr_results:
                 for (bbox, text, prob) in ocr_results:
                     if prob > 0.2:
                         print(f"Raw OCR Output: {text}")
-                        # Replace any sequence of "?" with "تونس" using regex
+                       
                         text = re.sub(r"\?+", "تونس", text)
                         print(f"Processed Text: {text}")
 
-                        # Display the detected text on the frame
                         cv2.putText(processed_frame, text, (int(x1), int(y2 + 30)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-                        # Check if license plate matches the target
+                        
                         if serial in text and code in text:
                             print("Target plate found: " + text)
                             detected_text = text
 
-                            # Save the frame with detection overlay
+                           
                             timestamp = int(time.time())
                             img_path = f'detected_frame_{timestamp}.jpg'
                             cv2.imwrite(img_path, processed_frame)
 
-                            # Create prominent "MATCH FOUND" indicator
+                           
                             cv2.putText(processed_frame, "MATCH FOUND!", (50, 50),
                                         cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3, cv2.LINE_AA)
 
-                            # Update detection time to implement cooldown
+                            
                             last_detection_time = current_time
 
-                            # Send email notification (in separate thread)
                             subject = "License Plate Match Found"
                             body = (f"Your specific license plate was detected: {Imatricule}\n"
                                     f"(serial number = {serial} and code = {code})\n"
@@ -187,9 +176,9 @@ def gen_frames_webcam():
     """Generate frames from webcam for streaming"""
     global camera, frame_global, camera_active
 
-    # Initialize camera if not already done
+    
     if camera is None:
-        camera = cv2.VideoCapture(0)  # 0 is usually the default webcam
+        camera = cv2.VideoCapture(0)  
         if not camera.isOpened():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' +
@@ -203,26 +192,21 @@ def gen_frames_webcam():
         if not success:
             break
         else:
-            # Store the frame globally for processing
+       
             frame_global = frame.copy()
 
-            # Process the frame
             processed_frame = process_frame(frame_global)
-
-            # Convert to JPEG for streaming
+            
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             if not ret:
                 continue
 
-            # Yield the frame in byte format
             frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-            # Small delay to reduce CPU usage
             time.sleep(0.03)
 
-    # Release the camera when the loop exits
     if camera is not None:
         camera.release()
         camera = None
@@ -234,7 +218,6 @@ def esp32_cam_stream():
 
     while esp32_cam_active and esp32_cam_url:
         try:
-            # For stream URL (MJPEG)
             if esp32_cam_url.endswith('/stream'):
                 response = requests.get(esp32_cam_url, stream=True, timeout=5)
                 if response.status_code == 200:
@@ -253,7 +236,6 @@ def esp32_cam_stream():
                 else:
                     print("Failed to connect to ESP32-CAM stream")
                     time.sleep(5)
-            # For single-frame capture URL
             else:
                 response = requests.get(esp32_cam_url, timeout=5)
                 if response.status_code == 200:
@@ -282,7 +264,6 @@ def gen_frames_esp32():
 
     esp32_cam_active = True
 
-    # Start ESP32-CAM streaming thread if not already running
     if esp32_cam_thread is None or not esp32_cam_thread.is_alive():
         esp32_thread = threading.Thread(target=esp32_cam_stream)
         esp32_thread.daemon = True
@@ -290,18 +271,14 @@ def gen_frames_esp32():
 
     while esp32_cam_active:
         if esp32_cam_frame is not None:
-            # Store the frame globally for processing
             frame_global = esp32_cam_frame.copy()
 
-            # Process the frame
             processed_frame = process_frame(frame_global)
 
-            # Convert to JPEG for streaming
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             if not ret:
                 continue
 
-            # Yield the frame in byte format
             frame_bytes = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
@@ -311,7 +288,6 @@ def gen_frames_esp32():
                    b'Content-Type: image/jpeg\r\n\r\n' +
                    open('static/waiting.jpg', 'rb').read() + b'\r\n')
 
-        # Small delay to reduce CPU usage
         time.sleep(0.03)
 
 
@@ -325,14 +301,11 @@ def gen_frames_video():
                open('static/no_video.jpg', 'rb').read() + b'\r\n')
         return
 
-    # Clear previously processed frames
     processed_frames = []
 
-    # Process video if not already processed
     if not processing_video:
         processing_video = True
 
-        # Open the video file
         cap = cv2.VideoCapture(video_path)
 
         if not cap.isOpened():
@@ -342,25 +315,21 @@ def gen_frames_video():
                    open('static/error.jpg', 'rb').read() + b'\r\n')
             return
 
-        # Process each frame in the video
         while True:
             success, frame = cap.read()
             if not success:
                 break
 
-            # Process the frame
             processed_frame = process_frame(frame)
 
-            # Convert to JPEG and store
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             if ret:
                 processed_frames.append(buffer.tobytes())
 
-        # Release the video
+     
         cap.release()
         processing_video = False
 
-    # Stream the processed frames
     for frame_bytes in processed_frames:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
@@ -383,6 +352,21 @@ def video_feed():
                         mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
+@app.route('/stop_all_sources', methods=['POST'])
+def stop_all_sources():
+    """Stop all video sources"""
+    global camera_active, esp32_cam_active, camera, processing_video
+
+    camera_active = False
+    esp32_cam_active = False
+    processing_video = False
+
+    if camera is not None:
+        camera.release()
+        camera = None
+
+    return jsonify({"status": "success", "message": "All video sources stopped"})
+
 @app.route('/capture', methods=['GET'])
 def capture():
     """Capture a single frame for processing"""
@@ -391,12 +375,10 @@ def capture():
     if frame_global is not None:
         processed_frame = process_frame(frame_global.copy())
 
-        # Save the frame
         timestamp = int(time.time())
         img_path = f'captured_frame_{timestamp}.jpg'
         cv2.imwrite(img_path, processed_frame)
 
-        # Send email notification
         subject = "Manual Capture - License Plate Detection"
         body = f"A frame was manually captured at {time.strftime('%Y-%m-%d %H:%M:%S')}"
 
@@ -423,21 +405,19 @@ def connect_esp32():
     global esp32_cam_url, esp32_cam_active, esp32_cam_thread, camera_active
 
     try:
-        # Extract URL from the request
+
         data = request.get_json()
         if not data or 'url' not in data:
             return jsonify({"status": "error", "message": "No URL provided"})
 
-        # Store the URL
+
         esp32_cam_url = data['url']
 
-        # Stop webcam if it's active
         if camera_active:
             camera_active = False
             if camera is not None:
                 camera.release()
 
-        # Start ESP32-CAM connection
         esp32_cam_active = True
         if esp32_cam_thread is None or not esp32_cam_thread.is_alive():
             esp32_cam_thread = threading.Thread(target=esp32_cam_stream)
@@ -473,15 +453,13 @@ def upload_video():
         return jsonify({"status": "error", "message": "No selected file"})
 
     if file:
-        # Stop any ongoing video processing
+        
         processing_video = False
 
-        # Save the uploaded file
         timestamp = int(time.time())
         filename = f"uploaded_video_{timestamp}.mp4"
         file_path = os.path.join('uploads', filename)
 
-        # Create uploads directory if it doesn't exist
         os.makedirs('uploads', exist_ok=True)
 
         file.save(file_path)
@@ -551,7 +529,6 @@ def update_email_settings():
         if 'smtp_port' in data:
             smtp_port = int(data['smtp_port'])
 
-        # Test email connection
         test_result = send_email("Test Connection", "This is a test email to verify connection settings.")
 
         if test_result:
@@ -585,7 +562,6 @@ def switch_source():
         data = request.get_json()
         source = data.get('source', 'webcam')
 
-        # Stop all active sources
         camera_active = False
         esp32_cam_active = False
 
@@ -593,7 +569,7 @@ def switch_source():
             camera.release()
             camera = None
 
-        # Activate the requested source
+   
         if source == 'webcam':
             camera_active = True
             return jsonify({"status": "success", "message": "Switched to webcam"})
@@ -619,7 +595,6 @@ def switch_source():
         return jsonify({"status": "error", "message": f"Error switching source: {str(e)}"})
 
 
-# Define HTML template for frontend
 @app.route('/templates/index.html')
 def get_template():
     """Return the HTML template for the frontend"""
@@ -645,12 +620,18 @@ def get_template():
 
            <div class="row">
                <div class="col-md-8">
-                   <div class="video-container">
-                       <img id="videoFeed" src="/video_feed" class="img-fluid border" alt="Video Feed">
-                       <div class="video-overlay">
-                           <button id="captureBtn" class="btn btn-primary">Capture Frame</button>
-                       </div>
-                   </div>
+            <div class="video-container">
+                <img id="videoFeed" src="/video_feed" class="img-fluid border" alt="Video Feed">
+                <div class="video-controls mt-3 d-flex justify-content-between">
+                    <div>
+                        <button id="captureBtn" class="btn btn-primary">Capture Frame</button>
+                        <button id="openVideoBtn" class="btn btn-info ms-2">Open Video</button>
+                    </div>
+                    <div>
+                        <button id="stopAllSources" class="btn btn-danger">Stop All Video</button>
+                    </div>
+                </div>
+            </div>
                </div>
 
                <div class="col-md-4">
@@ -798,6 +779,27 @@ def get_template():
                thresholdInput.addEventListener('input', function() {
                    thresholdValue.textContent = this.value;
                });
+
+               // Stop all video sources button
+                const stopAllSourcesBtn = document.getElementById('stopAllSources');
+                stopAllSourcesBtn.addEventListener('click', function() {
+                fetch('/stop_all_sources', {
+                   method: 'POST',
+                })
+                .then(response => response.json())
+                .then(data => {
+                if (data.status === 'success') {
+                // Display a static "video stopped" image
+            videoFeed.src = 'static/no_camera.jpg';
+            updateStatus('Video sources stopped', 'info');
+            } else {
+            updateStatus('Error: ' + data.message, 'danger');
+            }
+            })
+             .catch(error => {
+                updateStatus('Error stopping video sources: ' + error, 'danger');
+            });
+        });
 
                // Video source selection
                function updateVideoSource() {
@@ -1059,13 +1061,10 @@ def get_template():
 
 
 if __name__ == '__main__':
-   # Create uploads directory if it doesn't exist
    os.makedirs('uploads', exist_ok=True)
    os.makedirs('static', exist_ok=True)
 
-   # Create placeholder images if they don't exist
    if not os.path.exists('static/no_camera.jpg'):
-       # Generate a simple placeholder image
        placeholder = np.ones((480, 640, 3), dtype=np.uint8) * 200
        cv2.putText(placeholder, "No Camera Available", (150, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
        cv2.imwrite('static/no_camera.jpg', placeholder)
@@ -1085,5 +1084,4 @@ if __name__ == '__main__':
        cv2.putText(placeholder, "Waiting for ESP32-CAM...", (120, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
        cv2.imwrite('static/waiting.jpg', placeholder)
 
-   # Run the Flask app
    app.run(host='0.0.0.0', port=5000, debug=True)
