@@ -27,7 +27,7 @@ serial = '147'
 code = '2665'
 
 # OCR setup
-reader = easyocr.Reader(['ar', 'en'])  
+reader = easyocr.Reader(['ar', 'en'])
 
 # Detection parameters
 threshold = 0.25
@@ -37,7 +37,7 @@ match_found = False
 # Email configuration
 sender_email = "selim.belkhire@etudiant-enit.utm.tn"
 receiver_email = "selim.belkhire@etudiant-enit.utm.tn"
-password = ""  #write your own token given by google here 
+password = "tbtlxuqrcdaevnem"
 smtp_server = "smtp.gmail.com"
 smtp_port = 587
 
@@ -49,8 +49,8 @@ processing_video = False
 video_frame = None
 frame_global = None
 last_detection_time = 0
-detection_cooldown = 10 
-processed_frames = [] 
+detection_cooldown = 10
+processed_frames = []
 
 esp32_cam_url = None
 esp32_cam_active = False
@@ -74,9 +74,9 @@ def send_email(subject, body, img_path=None):
             msg.attach(image)
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()  
-            server.login(sender_email, password)  
-            server.sendmail(sender_email, receiver_email, msg.as_string()) 
+            server.starttls()
+            server.login(sender_email, password)
+            server.sendmail(sender_email, receiver_email, msg.as_string())
         print("Email sent successfully!")
         return True
     except Exception as e:
@@ -108,49 +108,49 @@ def process_frame(frame):
             cv2.putText(processed_frame, label, (int(x1), int(y1 - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
 
-           
+
             license_plate_region = frame[int(y1):int(y2), int(x1):int(x2)]
 
-          
+
             if license_plate_region.size == 0 or license_plate_region.shape[0] < 10 or license_plate_region.shape[
                 1] < 10:
                 continue
 
-        
+
             gray = cv2.cvtColor(license_plate_region, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-          
+
             resized = cv2.resize(binary, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
 
             ocr_results = reader.readtext(resized)
 
-         
+
             if ocr_results:
                 for (bbox, text, prob) in ocr_results:
                     if prob > 0.2:
                         print(f"Raw OCR Output: {text}")
-                       
+
                         text = re.sub(r"\?+", "تونس", text)
                         print(f"Processed Text: {text}")
 
                         cv2.putText(processed_frame, text, (int(x1), int(y2 + 30)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-                        
+
                         if serial in text and code in text:
                             print("Target plate found: " + text)
                             detected_text = text
 
-                           
+
                             timestamp = int(time.time())
                             img_path = f'detected_frame_{timestamp}.jpg'
                             cv2.imwrite(img_path, processed_frame)
 
-                           
+
                             cv2.putText(processed_frame, "MATCH FOUND!", (50, 50),
                                         cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3, cv2.LINE_AA)
 
-                            
+
                             last_detection_time = current_time
 
                             subject = "License Plate Match Found"
@@ -176,9 +176,9 @@ def gen_frames_webcam():
     """Generate frames from webcam for streaming"""
     global camera, frame_global, camera_active
 
-    
+
     if camera is None:
-        camera = cv2.VideoCapture(0)  
+        camera = cv2.VideoCapture(0)
         if not camera.isOpened():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' +
@@ -192,11 +192,11 @@ def gen_frames_webcam():
         if not success:
             break
         else:
-       
+
             frame_global = frame.copy()
 
             processed_frame = process_frame(frame_global)
-            
+
             ret, buffer = cv2.imencode('.jpg', processed_frame)
             if not ret:
                 continue
@@ -326,7 +326,7 @@ def gen_frames_video():
             if ret:
                 processed_frames.append(buffer.tobytes())
 
-     
+
         cap.release()
         processing_video = False
 
@@ -453,7 +453,7 @@ def upload_video():
         return jsonify({"status": "error", "message": "No selected file"})
 
     if file:
-        
+
         processing_video = False
 
         timestamp = int(time.time())
@@ -569,7 +569,7 @@ def switch_source():
             camera.release()
             camera = None
 
-   
+
         if source == 'webcam':
             camera_active = True
             return jsonify({"status": "success", "message": "Switched to webcam"})
@@ -625,7 +625,6 @@ def get_template():
                 <div class="video-controls mt-3 d-flex justify-content-between">
                     <div>
                         <button id="captureBtn" class="btn btn-primary">Capture Frame</button>
-                        <button id="openVideoBtn" class="btn btn-info ms-2">Open Video</button>
                     </div>
                     <div>
                         <button id="stopAllSources" class="btn btn-danger">Stop All Video</button>
@@ -662,7 +661,7 @@ def get_template():
                            <div id="videoOptions" class="mt-3" style="display: none;">
                                <form id="videoUploadForm" enctype="multipart/form-data">
                                    <input type="file" id="videoFile" class="form-control" accept="video/*">
-                                   <button type="submit" class="btn btn-sm btn-primary mt-2">Upload Video</button>
+                                   
                                </form>
                            </div>
                        </div>
