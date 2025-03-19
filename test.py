@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, request, jsonify
+from flask import Flask, render_template, Response, request, jsonify , send_file
 import cv2
 from ultralytics import YOLO
 import easyocr
@@ -241,13 +241,13 @@ def esp32_cam_stream():
                 if response.status_code == 200:
                     img_array = np.frombuffer(response.content, dtype=np.uint8)
                     esp32_cam_frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                    time.sleep(0.1) 
+                    time.sleep(0.1)  # Small delay between requests
                 else:
                     print(f"Failed to get frame from ESP32-CAM: {response.status_code}")
                     time.sleep(1)
         except Exception as e:
             print(f"Error fetching ESP32-CAM frame: {e}")
-            time.sleep(5) 
+            time.sleep(5)  # Wait before retrying
 
     print("ESP32-CAM streaming stopped")
 
@@ -293,7 +293,7 @@ def gen_frames_esp32():
 
 def gen_frames_video():
     """Generate frames from video file for streaming"""
-    global video_path, processing_video, processed_frames
+    global video_path, processing_video, processed_frames, video_frame
 
     if video_path is None or not os.path.exists(video_path):
         yield (b'--frame\r\n'
@@ -301,13 +301,12 @@ def gen_frames_video():
                open('static/no_video.jpg', 'rb').read() + b'\r\n')
         return
 
-    processed_frames = []
-
-    if not processing_video:
+    # Don't reprocess if we already have processed frames
+    if not processed_frames and not processing_video:
         processing_video = True
+        processed_frames = []
 
         cap = cv2.VideoCapture(video_path)
-
         if not cap.isOpened():
             processing_video = False
             yield (b'--frame\r\n'
@@ -315,10 +314,24 @@ def gen_frames_video():
                    open('static/error.jpg', 'rb').read() + b'\r\n')
             return
 
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30  # Default to 30 fps if detection fails
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(f"Processing video with {total_frames} frames at {fps} fps")
+
+        # Process the video
+        frame_count = 0
         while True:
             success, frame = cap.read()
             if not success:
                 break
+
+            frame_count += 1
+            if frame_count % 10 == 0:  # Print progress every 10 frames
+                print(f"Processing frame {frame_count}/{total_frames} ({frame_count / total_frames * 100:.1f}%)")
 
             processed_frame = process_frame(frame)
 
@@ -326,15 +339,69 @@ def gen_frames_video():
             if ret:
                 processed_frames.append(buffer.tobytes())
 
-
         cap.release()
         processing_video = False
+        print(f"Video processing complete. {len(processed_frames)} frames processed.")
 
+        # Create output video file
+        if len(processed_frames) > 0:
+            try:
+                output_path = f"{video_path.rsplit('.', 1)[0]}_processed.mp4"
+
+                # Need to get the first frame to determine dimensions
+                first_frame = cv2.imdecode(np.frombuffer(processed_frames[0], np.uint8), cv2.IMREAD_COLOR)
+                height, width, _ = first_frame.shape
+
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+                for frame_bytes in processed_frames:
+                    frame = cv2.imdecode(np.frombuffer(frame_bytes, np.uint8), cv2.IMREAD_COLOR)
+                    out.write(frame)
+
+                out.release()
+                print(f"Processed video saved to {output_path}")
+            except Exception as e:
+                print(f"Error saving processed video: {e}")
+
+    # Stream the processed frames
+    frame_delay = 1.0 / 30  # Target 30 fps for streaming
     for frame_bytes in processed_frames:
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        time.sleep(0.03)  # Control playback speed
+        time.sleep(frame_delay)  # Proper control of playback speed
 
+
+# Add these routes to your Flask app
+
+@app.route('/check_processed_video')
+def check_processed_video():
+    """Check if processed video exists"""
+    global video_path
+
+    if video_path:
+        processed_path = f"{video_path.rsplit('.', 1)[0]}_processed.mp4"
+        if os.path.exists(processed_path):
+            return jsonify({
+                "status": "success",
+                "video_path": processed_path
+            })
+
+    return jsonify({"status": "error", "message": "No processed video available"})
+
+
+@app.route('/download_processed_video')
+def download_processed_video():
+    """Download the processed video file"""
+    global video_path
+
+    if video_path:
+        processed_path = f"{video_path.rsplit('.', 1)[0]}_processed.mp4"
+        if os.path.exists(processed_path):
+            filename = os.path.basename(processed_path)
+            return send_file(processed_path, as_attachment=True, attachment_filename=filename)
+
+    return jsonify({"status": "error", "message": "No processed video available"})
 
 @app.route('/video_feed')
 def video_feed():
@@ -639,6 +706,10 @@ def get_template():
                            <h5>Video Source</h5>
                        </div>
                        <div class="card-body">
+                           <div id="videoDownloadArea" style="display: none;" class="mt-3">
+                               <a id="downloadProcessedVideo" class="btn btn-success" download>Download Processed Video</a>
+                               <p class="small text-muted mt-2">The processed video is available for download.</p>
+                           </div>
                            <div class="form-check">
                                <input class="form-check-input" type="radio" name="videoSource" id="webcamSource" value="webcam" checked>
                                <label class="form-check-label" for="webcamSource">Webcam</label>
@@ -661,7 +732,7 @@ def get_template():
                            <div id="videoOptions" class="mt-3" style="display: none;">
                                <form id="videoUploadForm" enctype="multipart/form-data">
                                    <input type="file" id="videoFile" class="form-control" accept="video/*">
-                                   
+                                   <button type="submit" class="btn btn-primary mt-2">Upload Video</button>
                                </form>
                            </div>
                        </div>
@@ -773,6 +844,8 @@ def get_template():
                const thresholdValue = document.getElementById('thresholdValue');
                const detectionSettingsForm = document.getElementById('detectionSettingsForm');
                const emailSettingsForm = document.getElementById('emailSettingsForm');
+               const videoDownloadArea = document.getElementById('videoDownloadArea');
+               const downloadProcessedVideo = document.getElementById('downloadProcessedVideo')
 
                // Update threshold value display
                thresholdInput.addEventListener('input', function() {
@@ -903,29 +976,52 @@ def get_template():
                });
 
                // Switch video source
-               function switchSource(source) {
-                   fetch('/switch_source', {
-                       method: 'POST',
-                       headers: {
-                           'Content-Type': 'application/json',
-                       },
-                       body: JSON.stringify({ source: source }),
-                   })
-                   .then(response => response.json())
-                   .then(data => {
-                       if (data.status === 'success') {
-                           // Update video feed URL with a cache-busting parameter
-                           videoFeed.src = '/video_feed?source=' + source + '&t=' + new Date().getTime();
-                           updateStatus('Switched to ' + source, 'success');
-                       } else {
-                           updateStatus('Error: ' + data.message, 'danger');
-                       }
-                   })
-                   .catch(error => {
-                       updateStatus('Error switching source: ' + error, 'danger');
-                   });
-               }
-
+function switchSource(source) {
+    fetch('/switch_source', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ source: source }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Update video feed URL with a cache-busting parameter
+            videoFeed.src = '/video_feed?source=' + source + '&t=' + new Date().getTime();
+            updateStatus('Switched to ' + source, 'success');
+            
+            // Show download button only for video source
+            if (source === 'video') {
+                // Check if processed video exists after a delay
+                setTimeout(checkProcessedVideo, 1000);
+            } else {
+                videoDownloadArea.style.display = 'none';
+            }
+        } else {
+            updateStatus('Error: ' + data.message, 'danger');
+        }
+    })
+    .catch(error => {
+        updateStatus('Error switching source: ' + error, 'danger');
+    });
+}
+function checkProcessedVideo() {
+    fetch('/check_processed_video')
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.video_path) {
+            downloadProcessedVideo.href = '/download_processed_video';
+            videoDownloadArea.style.display = 'block';
+        } else {
+            videoDownloadArea.style.display = 'none';
+        }
+    })
+    .catch(error => {
+        console.error('Error checking processed video:', error);
+        videoDownloadArea.style.display = 'none';
+    });
+}
                // Capture frame
                captureBtn.addEventListener('click', function() {
                    fetch('/capture')
